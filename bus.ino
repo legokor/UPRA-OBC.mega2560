@@ -1,0 +1,65 @@
+bool busBusy_interrupt(void)
+{
+  if (digitalRead(BUSBUSY) != 1)
+  {
+    return true;
+  }
+  return false;
+}
+
+void setBusBusy(void)
+{
+  pinMode(BUSBUSY, OUTPUT);
+  digitalWrite(BUSBUSY, LOW);
+}
+
+void clrBusBusy(void)
+{
+  digitalWrite(BUSBUSY, HIGH);
+  pinMode(BUSBUSY, INPUT);
+}
+
+int ProcessBUSmsg(void)
+{
+  if ((bus_msg[1] == 'T') && (bus_msg[2] == 'C') && (bus_msg[3] == 'H') && (bus_msg[4] == 'K') && (bus_msg[5] == 'D'))
+  {
+    parseRadioHK();
+//    CheckGPSFix();
+    return 0;
+  }
+  if ((bus_msg[1] == 'C') && (bus_msg[2] == 'M') && (bus_msg[3] == 'D') && (bus_msg[4] == 'T') && (bus_msg[5] == 'A'))
+  {
+    return processCMDTAmsg();
+  }
+  return 1;  
+}
+
+int GetBusMSG(void)
+{
+  char inByte;
+  int error=10;
+  
+ // ////////SICL.listen(); 
+  while (SICL.available() > 0)
+  {
+    inByte = SICL.read();
+ 
+    if ((inByte =='$') || (MSGindex >= 30))
+    {
+      MSGindex = 0;
+    }
+ 
+    if (inByte != '\r')
+    {
+      bus_msg[MSGindex++] = inByte;
+    }
+ 
+    if (inByte == '\n')
+    {
+    //  SICL.println("endline");
+      error=ProcessBUSmsg();
+      MSGindex = 0;
+    }
+  }
+  return error;  
+}
