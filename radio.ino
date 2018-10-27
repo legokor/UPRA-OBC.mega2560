@@ -1,29 +1,24 @@
-void serialFlush(){
-  while(SICL.available() > 0) {
-    char t = SICL.read();
-  }
-  for(int i=0; i<30; i++)
-  {
-    bus_msg[i]=0;
-  }
-} 
+uint32_t radio_state;
 
-void parseRadioHK()
+void task_beacon_tx()
+{
+  bus_sm(BUS_BEACON_TX);
+}
+
+void processTCHKDmsg()
 {
   int i, j, k, IntegerPart;
-
-
  
   // $TCHKD,0123,336*47
   //        temp  vcc
   //           1   2
  
   IntegerPart = 1;
-
+  radio_msg_id = 0;
  
   for (i=0, j=0, k=0; (i<MSGindex) && (j<10); i++) // We start at 7 so we ignore the '$GPGGA,'
   {
-    if (bus_msg[i] == ',')
+    if ((bus_msg[i] == ',') || (bus_msg[i] == '*'))
     {
       j++;    // Segment index
       k=0;    // Index into target variable
@@ -43,13 +38,44 @@ void parseRadioHK()
       {
         k++;
       }
+      else if (j == 3)
+      {
+        if (((bus_msg[i] >= '0') && (bus_msg[i] <= '9')) )
+        {        
+          radio_msg_id = radio_msg_id * 10;
+          radio_msg_id += (unsigned int)(bus_msg[i] - '0');
+          k++;
+        }
+      }
     }
-    
-   // GPS_Altitude = Altitude;
   }
   radio_temp[3] ='\0';  
-
+  DEBUG.println(radio_temp);
 }
+
+void radio_init()
+{
+
+  radio_temp[0] = 'N';
+  radio_temp[1] = '/';
+  radio_temp[2] = 'A';
+  radio_temp[3] = '\0';
+  radio_msg_id = 0;
+//  sw_timer_add_channel(RADIO_TIMER, RADIO_ACK_TIMEOUT, &radio_timer_cb);
+}
+
+
+void serialFlush(){
+  while(SICL.available() > 0) {
+    char t = SICL.read();
+  }
+  for(int i=0; i<30; i++)
+  {
+    bus_msg[i]=0;
+  }
+} 
+
+
 
 int parseRequestHandshake(void)
 {
@@ -62,44 +88,7 @@ int parseEOTHandshake(void)
 }
 
 
-int GetRadioHousekeeping(void)
-{
-  int inByte;
-  int i=0;
-  int msg_index=0;
-  int msg_code = 0;
-  int timer=0;
-  int nowtime=0;
-  int getmsg=10;
-  
-  ////////////SICL.listen();  
-  DEBUG.println(F("OBC: Get Radio Housekeeping"));  
-  delay(100);
-  setBusBusy();
-  delay(500);
-  SICL.println(F("$TMHKR,C,,,,*47"));
 
-  timer=millis();
-  //SICL.println(timer);
-
-  ////////////SICL.listen();  
- // serialFlush();
-  while(getmsg !=0)
-  {
-    getmsg=GetBusMSG();
-    
-    nowtime=millis();
-    if(nowtime - timer >4000)
-    {
-      DEBUG.println(F("OBC: COM HK timeout"));
-      break;
-    }
-    
-        
-   // SICL.print(".");
-  }
-  clrBusBusy();
-}
 
 int SendRadioTelemetry(void)
 {
@@ -110,46 +99,69 @@ int SendRadioTelemetry(void)
 /////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////
 
-void lowSpeedTelemetry(void)
+int32_t radio_get_hk(void)
 {
-      unsigned long timer=0;
-      long  GPS_Alt_tmp;
-      char buffer[10];
-      GetRadioHousekeeping();
-      DEBUG.print(F("OBC: COM temp: "));
-      DEBUG.println(radio_temp);
-//      Serial.begin(57600);
+  ////////////SICL.listen();  
+  DEBUG.println(F("[OBC] Get Radio Housekeeping"));  
+  delay(100);
+  setBusBusy();
+  delay(500);
+  SICL.println(F("$TMHKR,C,,,,*47"));
+
+  // TODO bus_sm(BUS_RX);
+  bus_sm(BUS_PROCESS);
+  return 0;
+}
+
+int32_t radio_beacon_tx(void)
+{
+  long  GPS_Alt_tmp;
+  char tmp_buffer[64];
+
       ////////////SICL.listen(); 
-      //getTemperatures();
-      
-      delay(500);
+  take_mutex();
+        
+  delay(500);
 //      Serial.println("");
 //      debugLOG();
-        setBusBusy();
-        delay(500);
-      
+  setBusBusy();
+  delay(500);
+  
+  GPS_Alt_tmp = GPS_Altitude[GPS_valid];
+  sprintf(tmp_buffer, "$TMLTM,%s,%s,%s,%05ld,%04lu,%04lu",  GPS_time[GPS_valid], 
+                                                              GPS_lati[GPS_valid], 
+                                                                GPS_long[GPS_valid], 
+                                                                 GPS_Alt_tmp, 
+                                                                   ext_temp, 
+                                                                      pcb_temp );
 
-        GPS_Alt_tmp = GPS_Altitude;
-        delay(200);
-        SICL.print(F("$TMLTM,"));
-        SICL.print(GPS_time);
-        SICL.print(F(","));
-        SICL.print(GPS_lati);
-        SICL.print(F(","));
-        SICL.print(GPS_long);
-        SICL.print(F(","));
-        //SICL.print(GPS_Alt_ch);
-        sprintf(buffer, "%05ld",GPS_Alt_tmp);
-        SICL.print(buffer);
-        SICL.print(F(","));
-        sprintf(buffer, "%04d",(int)(ext_temp*10.0));
-        SICL.print(buffer);
-        SICL.print(F(","));
-        sprintf(buffer, "%04d",(int)(int_temp*10.0));
-        SICL.print(buffer);
-        SICL.println(F("*47"));    
+  DEBUG.print(F("[OBC] ALTITUDE: "));  
+  DEBUG.println(GPS_Alt_tmp);
+  DEBUG.println(tmp_buffer);
+  delay(200);
+//        SICL.print(F("$TMLTM,"));
+//        SICL.print(GPS_time[GPS_valid]);
+//        SICL.print(F(","));
+//        SICL.print(GPS_lati[GPS_valid]);
+//        SICL.print(F(","));
+//        SICL.print(GPS_long[GPS_valid]);
+//        SICL.print(F(","));
+//        //SICL.print(GPS_Alt_ch);
+//        sprintf(buffer, "%05ld",GPS_Alt_tmp);
+//        SICL.print(buffer);
+//        SICL.print(F(","));
+//        sprintf(buffer, "%04d",ext_temp[ext_temp_valid]);
+//        SICL.print(buffer);
+//        SICL.print(F(","));
+//        sprintf(buffer, "%04d",pcb_temp[pcb_temp_valid]);
+//        SICL.print(buffer);
+  SICL.print(tmp_buffer);
+  SICL.println(F("*47"));    
 
-        clrBusBusy();
+  sw_timer_enable_channel(BUS_TIMER);
+  bus_sm(BUS_PROCESS);
+  give_mutex();
+  return 0;
 }
 
 /*void lowSpeedStartup(void)
@@ -158,7 +170,7 @@ void lowSpeedTelemetry(void)
      
 //      SICL.begin(57600); 
       //////SICL.listen();
-      GetRadioHousekeeping();
+      radio_get_hk();
       
       
       delay(1000);

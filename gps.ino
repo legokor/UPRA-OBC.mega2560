@@ -1,3 +1,82 @@
+byte              GPSBuffer[82];
+byte              GPSIndex=0;
+uint32_t          gps_state;
+uint32_t          gps_retries;
+int32_t           gps_first_time_fix;
+
+
+void task_gps()
+{
+  gps_sm(GPS_READ);
+}
+
+void task_read_gps()
+{
+  take_mutex();
+  CheckGPS();
+  give_mutex();
+}
+
+
+
+int32_t gps_init()
+{
+  int GPS_stat;
+
+  gps_state = GPS_ST_IDLE;
+  gps_retries = GPS_MAX_RETRIES;
+  GPS_valid = 0;
+
+  GPS_Fix = 0;
+  GPS_Satellites = 0;
+  gps_first_time_fix = 1;
+  
+  GPS_time[GPS_valid][0] = '3';
+  GPS_time[GPS_valid][1] = '3';
+  GPS_time[GPS_valid][2] = '6';
+  GPS_time[GPS_valid][3] = '6';
+  GPS_time[GPS_valid][4] = '7';
+  GPS_time[GPS_valid][5] = '7';
+  GPS_time[GPS_valid][6] = '\0';
+
+  GPS_lati[GPS_valid][0] = '+';
+  GPS_lati[GPS_valid][1] = '9';
+  GPS_lati[GPS_valid][2] = '5';
+  GPS_lati[GPS_valid][3] = '0';
+  GPS_lati[GPS_valid][4] = '0';
+  GPS_lati[GPS_valid][5] = '.';
+  GPS_lati[GPS_valid][6] = '0';
+  GPS_lati[GPS_valid][7] = '0';
+  GPS_lati[GPS_valid][8] = '0';
+  GPS_lati[GPS_valid][9] = '\0';
+
+  GPS_long[GPS_valid][0] = '+';
+  GPS_long[GPS_valid][1] = '1';
+  GPS_long[GPS_valid][2] = '8';
+  GPS_long[GPS_valid][3] = '8';
+  GPS_long[GPS_valid][4] = '8';
+  GPS_long[GPS_valid][5] = '8';
+  GPS_long[GPS_valid][6] = '.';
+  GPS_long[GPS_valid][7] = '0';
+  GPS_long[GPS_valid][8] = '0';
+  GPS_long[GPS_valid][9] = '0';
+  GPS_long[GPS_valid][10] = '\0';  
+
+
+  GPS.begin(GPS_BAUD);
+  GPS_stat = SetupUBLOX();
+
+  sw_timer_add_channel(GPS_TIMER, GPS_PROCESS_TIMEOUT, &gps_timer_cb);
+
+  
+  if(GPS_stat == 1)
+  {
+    //SICL.listen();
+    return -1;
+  }
+  return 0;
+}
+
 uint8_t SetupUBLOX(void)
 {
   uint8_t GPS_ERROR=0;
@@ -22,6 +101,7 @@ uint8_t CheckGPS()
  
     if ((inByte =='$') || (GPSIndex >= 80))
     {
+      gps_time_sync = 0;
       GPSIndex = 0;
     }
  
@@ -32,27 +112,23 @@ uint8_t CheckGPS()
  
     if (inByte == '\n')
     {
-      error=ProcessGPSLine();
-      GPSIndex = 0;
+      gps_sm(GPS_EOL);
+//      error=process_nmea();
     }
   }
   return error;
 }
-uint8_t ProcessGPSLine()
+uint8_t process_nmea()
 {
   if ((GPSBuffer[1] == 'G') && (GPSBuffer[2] == 'P') && (GPSBuffer[3] == 'G') && (GPSBuffer[4] == 'G') && (GPSBuffer[5] == 'A'))
   {
-/*    Serial.println("gga detect");
-    for(int v=0;v<82;v++)
-    {
-      Serial.print(char(GPSBuffer[v]));
-    }
-    Serial.println("");*/
     ProcessGPGGACommand();
-//    CheckGPSFix();
+    gps_sm(GPS_GGA);
+    sdcard_push_track_log();
     return 0;
   }
 //  Serial.println("no gga");
+  gps_sm(GPS_NO_GGA);
   return 1;
 }
 
@@ -61,21 +137,18 @@ void ProcessGPGGACommand()
   int i, j, k, IntegerPart;
   long Altitude;
   int time_msec = 0;
+  uint8_t buff_to_write;
 
-  char _GPS_time[10] = {'1', '2', '3', '4', '5', '6', '\0'};
-  char _GPS_lati[12] = {'+', '4', '8', '0', '7', '.', '0', '3', '8', '\0'};
-  char _GPS_long[13] = {'+', '0', '1', '1', '3', '1', '.', '0', '0', '0', '\0'};
+  enter_atomic();
 
+  buff_to_write = 1 - GPS_valid;
 
- 
-  // $GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47
-  //                                               =====  <-- altitude in field 8
- 
   IntegerPart = 1;
   GPS_Satellites = 0;
   Altitude = 0;
   GPS_Fix =0;
- 
+  GPS_Altitude[buff_to_write] = 0;
+  
   for (i=0, j=0, k=0; (i<GPSIndex) && (j<10); i++) // We start at 7 so we ignore the '$GPGGA,'
   {
     if (GPSBuffer[i] == ',')
@@ -90,7 +163,7 @@ void ProcessGPGGACommand()
       {
         if ((GPSBuffer[i] >= '0') && (GPSBuffer[i] <= '9') && (time_msec == 0))
         {        
-          _GPS_time[k] = GPSBuffer[i];
+          GPS_time[buff_to_write][k] = GPSBuffer[i];
           k++;
         }
         if(GPSBuffer[i] == '.')
@@ -101,20 +174,20 @@ void ProcessGPGGACommand()
       else if (j == 2)
       {
         k++;
-        _GPS_lati[k] = GPSBuffer[i];
+        GPS_lati[buff_to_write][k] = GPSBuffer[i];
       }
       else if (j == 3)
       {
-        _GPS_lati[0] = CheckNSEW(GPSBuffer[i]);
+        GPS_lati[buff_to_write][0] = CheckNSEW(GPSBuffer[i]);
       }
       else if (j == 4)
       {
         k++;
-        _GPS_long[k] = GPSBuffer[i];
+        GPS_long[buff_to_write][k] = GPSBuffer[i];
       }
       else if (j == 5)
       {
-        _GPS_long[0] = CheckNSEW(GPSBuffer[i]);
+        GPS_long[buff_to_write][0] = CheckNSEW(GPSBuffer[i]);
       }
       else if (j == 6)
       {
@@ -141,8 +214,8 @@ void ProcessGPGGACommand()
         // Altitude
         if ((GPSBuffer[i] >= '0') && (GPSBuffer[i] <= '9') && IntegerPart)
         {
-          Altitude = Altitude * 10;
-          Altitude += (unsigned int)(GPSBuffer[i] - '0');
+          GPS_Altitude[buff_to_write] = GPS_Altitude[buff_to_write] * 10;
+          GPS_Altitude[buff_to_write] += (unsigned int)(GPSBuffer[i] - '0');
         }
         else
         {
@@ -150,47 +223,45 @@ void ProcessGPGGACommand()
         }
       }
     }
-    
-   // GPS_Altitude = Altitude;
   }
+
+  GPS_time[buff_to_write][7] ='\0';    
+  gps_first_time_fix = gps_sync_time();
+  GPS_lati[buff_to_write][11] ='\0';
+  GPS_long[buff_to_write][12] ='\0';
+  
   if( GPS_Fix != 0)
   {
-    GPS_Altitude = Altitude;
-    sprintf(GPS_lati, "%s", _GPS_lati); 
-    sprintf(GPS_long, "%s", _GPS_long); 
-
-    GPS_lati[11] ='\0';
-    GPS_long[12] ='\0';
+    GPS_valid = buff_to_write;  
   }
-  sprintf(GPS_time, "%s", _GPS_time);   
-  GPS_time[7] ='\0';    
-  time_set();  
+  GPSIndex = 0;
+  exit_atomic();
 }
 
-
-/*void CheckGPSFix()
+int32_t gps_sync_time()
 {
-  if( GPS_Fix !=0)
-  {
-    sprintf(_GPS_lati, "%s", GPS_lati); 
-    sprintf(_GPS_long, "%s", GPS_long); 
-    sprintf(_GPS_time, "%s", GPS_time); 
-    _GPS_lati[11] ='\0';
-    _GPS_long[12] ='\0';
-    _GPS_time[7] ='\0';
+  time_t gps_time;
+  int32_t delta_time;
+  int32_t ret = 0;
 
-  }
-  else
-  {
-    sprintf(GPS_lati, "%s", _GPS_lati); 
-    sprintf(GPS_long, "%s", _GPS_long); 
-    sprintf(GPS_time, "%s", _GPS_time); 
-    GPS_lati[11] ='\0';
-    GPS_long[12] ='\0';
-    GPS_time[7] ='\0';
-  }
+  time_set_gps_time(&gps_time);
+
+  gps_time.timestamp = (gps_time.timestamp) + gps_time_sync;
   
-}*/
+  delta_time = (int32_t)(gps_time.timestamp - obc_time.timestamp);
+
+  if( gps_first_time_fix != 0)
+  {
+    ret = time_set_timestamp(&obc_time, gps_time.timestamp);
+  }
+
+  if( (delta_time <  (-30)) || ( (delta_time > 0) && (delta_time < 120) ) )
+  {
+    ret = time_set_timestamp(&obc_time, gps_time.timestamp);
+  }
+
+  return ret;
+}
 
 char CheckNSEW(char nsew)
 {
@@ -206,6 +277,125 @@ char CheckNSEW(char nsew)
 }
 
 
+int32_t gps_sm(uint32_t input)
+{
+  int32_t ret = 0; 
+  switch(gps_state)
+  {
+    case GPS_ST_IDLE:
+    {
+      ret = g_idle_state_executor(input);
+      break;
+    }
+    case GPS_ST_RX:
+    {
+      ret = g_rx_state_executor(input);
+      break;
+    }
+    case GPS_ST_PROCESS:
+    {
+      ret = g_process_state_executor(input);
+      break;
+    }
+    default:
+    {
+      ret = -1;
+      break;
+    }
+  }
+  return ret;
+}
+
+int32_t g_idle_state_executor(uint32_t input)
+{
+  switch(input)
+  {
+    case GPS_READ:
+    {
+      DEBUG.println(F("[OBC] GPS READ START"));
+      sw_timer_enable_channel(GPS_TIMER);
+      gps_state = GPS_ST_RX;
+      wake_up_task(GPS_RX_TASK);
+      return 0;
+    }
+    default: return -2;
+  }
+}
+
+int32_t g_rx_state_executor(uint32_t input)
+{
+  switch(input)
+  {
+    case GPS_EOL:
+    {
+      sleep_task(GPS_RX_TASK);
+      sw_timer_enable_channel(GPS_TIMER);
+      gps_state = GPS_ST_PROCESS;
+      process_nmea();
+      return 0;
+    }
+    case GPS_TIMEOUT:
+    {
+      sleep_task(GPS_RX_TASK);
+      give_mutex();
+      GPS_Fix = 0;
+      GPS_Satellites = 0;
+      DEBUG.println(F("[OBC] GPS READ TIMEOUT"));
+      gps_state = GPS_ST_IDLE;
+      return 0;
+    }
+    default: return -2;
+  }
+}
+
+int32_t g_process_state_executor(uint32_t input)
+{
+  switch(input)
+  {
+    case GPS_NO_GGA:
+    {
+      gps_state = GPS_ST_RX;
+      g_retry_cntr();
+      return 0;
+    }
+    case GPS_GGA:
+    {
+      DEBUG.println(F("[OBC] GPS READ FINISHED"));
+      gps_state = GPS_ST_IDLE;
+      return 0;
+    }
+    case GPS_TIMEOUT:
+    {
+      DEBUG.println(F("[OBC] GPS READ TIMEOUT"));
+      GPS_Fix = 0;
+      GPS_Satellites = 0;
+      gps_state = GPS_ST_IDLE;
+      return 0;
+    }
+    default: return -2;
+  }
+}
+
+void g_retry_cntr()
+{
+  if(gps_retries != 0)
+  {
+    gps_retries--;
+    if(gps_retries == 0)
+    {
+      gps_sm(GPS_TIMEOUT);
+    }
+  }
+}
+
+void gps_timer_cb()
+{
+  sw_timer_disable_channel(GPS_TIMER);
+  give_mutex();
+  gps_sm(GPS_TIMEOUT);
+}
+
+/*********************************************************************************************/
 uint8_t setGPS_DynamicModel6()
 {
  int gps_set_sucess=0;

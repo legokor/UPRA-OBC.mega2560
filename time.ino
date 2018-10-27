@@ -1,51 +1,99 @@
-void time_init(void)
+time_t *subtimestamp;
+
+void time_init(time_t* device)
 {
+  timer_initstruct_t timer_InitStruct;
   cli();//stop interrupts
 
-//set timer1 interrupt at 1Hz
-  TCCR1A = 0;// set entire TCCR1A register to 0
-  TCCR1B = 0;// same for TCCR1B
-  TCNT1  = 0;//initialize counter value to 0
-  // set compare match register for 1hz increments
-  OCR1A = 15624;// = (16*10^6) / (1*1024) - 1 (must be <65536)
-  // turn on CTC mode
-  TCCR1B |= (1 << WGM12);
-  // Set CS10 and CS12 bits for 1024 prescaler
-  TCCR1B |= (1 << CS12) | (1 << CS10);  
-  // enable timer compare interrupt
-  TIMSK1 |= (1 << OCIE1A);  
+  timer_InitStruct.timer = TIMER_1;
+  timer_InitStruct.period = 1; //[Hz]
+  timer_InitStruct.callback = &time_refresh_from_isr;
+
+  timer_init(&timer_InitStruct);
+
+  subtimestamp = device;
+  subtimestamp->hour   = 0;
+  subtimestamp->minute = 0;
+  subtimestamp->second = 0;
+  subtimestamp->timestamp = 0;
+
+  gps_time_sync = 0;
 
   sei();//allow interrupts
 }
 
-void time_set(void)
+void time_set_gps_time(time_t *device)
 {
-  OBC_time.hour   = ((GPS_time[0] - '0') * 10 ) +  (GPS_time[1] - '0');
-  OBC_time.minute = ((GPS_time[2] - '0') * 10 ) +  (GPS_time[3] - '0');
-  OBC_time.second = ((GPS_time[4] - '0') * 10 ) +  (GPS_time[4] - '0');
-  OBC_time.OBC_time = (OBC_time.hour * 3600 ) + (OBC_time.minute * 60 ) + OBC_time.second;
+  enter_atomic();
+  device->hour   = ((GPS_time[GPS_valid][0] - '0') * 10 ) +  (GPS_time[GPS_valid][1] - '0');
+  device->minute = ((GPS_time[GPS_valid][2] - '0') * 10 ) +  (GPS_time[GPS_valid][3] - '0');
+  device->second = ((GPS_time[GPS_valid][4] - '0') * 10 ) +  (GPS_time[GPS_valid][4] - '0');
+  device->timestamp = (device->hour * 3600 ) + (device->minute * 60 ) + device->second;
+  exit_atomic();
 }
 
-void time_refresh(void)
+int32_t time_set(time_t* device, uint32_t hour, uint32_t minute, uint32_t second)
 {
-  OBC_time.OBC_time++;
-  OBC_time.hour   = OBC_time.OBC_time / 3600;
-  OBC_time.minute = (OBC_time.OBC_time - (OBC_time.hour * 3600 ) ) / 60;
-  OBC_time.second = (OBC_time.OBC_time - (OBC_time.hour * 3600 ) ) - (OBC_time.minute * 60 ) ;
+  if( hour > 23) return -1;
+  if( minute > 59) return -1;
+  if( second > 59) return -1;
+
+  enter_atomic();
+  device->hour   = hour;
+  device->minute = minute;
+  device->second = second;
+  device->timestamp = (device->hour * 3600 ) + (device->minute * 60 ) + device->second;
+  exit_atomic();
+  return 0;
 }
 
-uint32_t time_get(void)
+int32_t time_set_timestamp(time_t* device, uint32_t timestamp)
 {
-    
+  if(timestamp > 86399) return -1;
+  
+  enter_atomic();
+  device->timestamp = timestamp;
+  device->hour   = device->timestamp / 3600;
+  device->minute = (device->timestamp - (device->hour * 3600 ) ) / 60;
+  device->second = (device->timestamp - (device->hour * 3600 ) ) - (device->minute * 60 ) ;
+  exit_atomic();
+  return 0;
 }
 
-ISR(TIMER1_COMPA_vect)
+void time_refresh_from_isr(void)
 {
-  time_refresh();
-//  DEBUG.print(OBC_time.hour);
-//  DEBUG.print(OBC_time.minute);
-//  DEBUG.println(OBC_time.second);
-//  DEBUG.println(OBC_time.OBC_time);
-
-
+  task_toggle_led();
+  gps_time_sync++;
+  if( (subtimestamp->timestamp++) > 86399)
+  {
+    subtimestamp->timestamp = 0;
+  }
+  subtimestamp->hour   = subtimestamp->timestamp / 3600;
+  subtimestamp->minute = (subtimestamp->timestamp - (subtimestamp->hour * 3600 ) ) / 60;
+  subtimestamp->second = (subtimestamp->timestamp - (subtimestamp->hour * 3600 ) ) - (subtimestamp->minute * 60 ) ;
+//  DEBUG.print(subtimestamp->hour);
+//  DEBUG.print(subtimestamp->minute);
+//  DEBUG.println(subtimestamp->second);
+//  DEBUG.println(subtimestamp->timestamp);
 }
+
+uint32_t time_get(uint32_t* hour, uint32_t* minute, uint32_t* second)
+{
+  enter_atomic();
+  *hour = subtimestamp->hour;
+  *minute = subtimestamp->minute;
+  *second = subtimestamp->second;
+  exit_atomic();
+}
+
+//ISR(TIMER1_COMPA_vect)
+//{
+//  task_toggle_led();
+//  time_refresh_from_isr();
+////  DEBUG.print(subtimestamp->hour);
+////  DEBUG.print(subtimestamp->minute);
+////  DEBUG.println(subtimestamp->second);
+////  DEBUG.println(subtimestamp->timestamp);
+//
+//
+//}

@@ -16,7 +16,7 @@ void getGPSMeasurement(void)
 */
   gps_wtchdg = millis();
 //  Serial.println(gps_wtchdg);
-  DEBUG.print("OBC: GPS read...");
+  DEBUG.print("[OBC] GPS read...");
   ////GPS.listen(); 
   GPS.begin(GPS_BAUD);
   while((gps_error !=0))// || (gps_wtchdg < 10000))
@@ -57,21 +57,21 @@ void getGPSMeasurement(void)
 
 void getTemperatures(void)
 {
-  DEBUG.println(F("OBC: COLLECT SENSOR DATA"));
+  DEBUG.println(F("[OBC] COLLECT SENSOR DATA"));
   //getGPSMeasurement();
   
-  ext_temp = getExtTemp();
-  int_temp = getIntTemp();
+  //ext_temp = get_external_temperature();
+  //int_temp = getIntTemp();
 }
 
 void debugLOG(void)
 {
-  DEBUG.print("time:      ");DEBUG.println(GPS_time);
-  DEBUG.print("latitude:  ");DEBUG.println(GPS_lati);
-  DEBUG.print("longitude: ");DEBUG.println(GPS_long);
-  DEBUG.print("altitude:  ");DEBUG.println(GPS_Altitude);
+  DEBUG.print("time:      ");DEBUG.println(GPS_time[GPS_valid]);
+  DEBUG.print("latitude:  ");DEBUG.println(GPS_lati[GPS_valid]);
+  DEBUG.print("longitude: ");DEBUG.println(GPS_long[GPS_valid]);
+  DEBUG.print("altitude:  ");DEBUG.println(GPS_Altitude[GPS_valid]);
   DEBUG.print("external:  ");DEBUG.println(ext_temp);
-  DEBUG.print("internal:  ");DEBUG.println(int_temp);
+  DEBUG.print("internal:  ");DEBUG.println(pcb_temp);
   DEBUG.print("radio:  ");DEBUG.println(radio_temp);
 }
 

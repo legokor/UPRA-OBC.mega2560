@@ -2,7 +2,7 @@ int processCMDTAmsg(void)
 {
   int i, j, k, IntegerPart;
   char tmp[3];
-  int pic=0;
+  int32_t pic=0;
  
   // $TMHKR,C,,,,*47
   //       COM 
@@ -28,8 +28,6 @@ int processCMDTAmsg(void)
       }
 
     }
-    
-   
   }
 
   if( tmp[0] == 'S')
@@ -37,18 +35,23 @@ int processCMDTAmsg(void)
     //SICL.println("save");
     pic = savePICsd();
     DEBUG.println(F(""));
+    //TODO change to switch case
     if(pic == 0)
     {
       DEBUG.println(F("Success"));
       return 0;
     }
-    else if(pic == 1)
+    else if(pic == -1)
     {
       DEBUG.println(F("Data overflow"));
     }
-    else if(pic == 2)
+    else if(pic == -2)
     {
       DEBUG.println(F("CAM timeout"));
+    }
+    else if(pic == -3)
+    {
+      DEBUG.println(F("SD Error"));
     }
     return 0;
   }
@@ -57,10 +60,9 @@ int processCMDTAmsg(void)
     SICL.println(F("$TMCAM,,END*47"));
     return 0;
   }  
-  
 }
 
-int savePICsd(void)
+int32_t savePICsd(void)
 {
   char str[10];
   byte buf[256];
@@ -70,10 +72,15 @@ int savePICsd(void)
   bool is_data=false;
   volatile int cam_wtchdg=0;
   int nowtime=0; 
+
+  if( !sdcard_is_card_present())
+  {
+    return -3; //TODO error codes
+  }
   
   //itoa(picnum, str, 10);
   str[0]='\0';
-  strcat(str, GPS_time);
+  strcat(str, GPS_time[GPS_valid]);
   strcat(str, ".jpg");
 
   //Open the new dataFile
@@ -82,7 +89,7 @@ int savePICsd(void)
   {
     DEBUG.println(F("open dataFile faild"));
     dataFile.close();
-    return 2;
+    return -3;
   }
   //picnum++;
 
@@ -95,7 +102,7 @@ int savePICsd(void)
     if(nowtime - cam_wtchdg >6000)
     {        
       dataFile.close();
-      return 2;
+      return -2;
     }    
  }
 /*  while (SICL.available() > 0)
@@ -111,7 +118,7 @@ int savePICsd(void)
   if(nowtime - cam_wtchdg >3000)
   {        
     dataFile.close();
-    return 2;
+    return -2;
   }  
   if (SICL.available() > 0)
   {
@@ -131,7 +138,7 @@ int savePICsd(void)
         if(k>320)
         {
           dataFile.close(); //close dataFile
-          return 1;
+          return -1;
         }
         
         buf[i++] = temp;
@@ -164,21 +171,14 @@ void getPICuart()
 
   //SICL.listen();
   //SICL.println("d");
+  setBusBusy();
+  delay(500);  
   SICL.println(F("$TMCAM,1,CAP*47"));
-  
-  timer=millis();
-  while(getmsg !=0)
-  {
-    getmsg=GetBusMSG();
-    nowtime=millis();
-    if(nowtime - timer >6000)
-    {
-      DEBUG.println(F("OCB: UPRA-CAM timeout"));
-      break;
-    }
-    
+
+  sw_timer_enable_channel(BUS_TIMER);
+  bus_sm(BUS_PROCESS);
         
    // SICL.print(".");
-  }
+ 
   
 }

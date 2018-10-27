@@ -20,8 +20,10 @@ void buzzer(void)
 
 void buzzerTest()
 {
-    tone(BUZZ,440);
-    delay(2000);   
-    noTone(BUZZ);
+  DEBUG.print(F("[OBC] BUZZER TEST..."));
+  tone(BUZZ,440);
+  delay(2000);   
+  noTone(BUZZ);
+  DEBUG.println(F("OK"));
 }
 
