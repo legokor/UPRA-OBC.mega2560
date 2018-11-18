@@ -27,6 +27,7 @@ int32_t gps_init()
   gps_retries = GPS_MAX_RETRIES;
   GPS_valid = 0;
 
+  GPS_first_fix = 0;
   GPS_Fix = 0;
   GPS_Satellites = 0;
   gps_first_time_fix = 1;
@@ -139,7 +140,7 @@ void ProcessGPGGACommand()
   int time_msec = 0;
   uint8_t buff_to_write;
 
-  enter_atomic();
+  take_mutex();
 
   buff_to_write = 1 - GPS_valid;
 
@@ -226,16 +227,22 @@ void ProcessGPGGACommand()
   }
 
   GPS_time[buff_to_write][7] ='\0';    
-  gps_first_time_fix = gps_sync_time();
   GPS_lati[buff_to_write][11] ='\0';
   GPS_long[buff_to_write][12] ='\0';
   
   if( GPS_Fix != 0)
   {
     GPS_valid = buff_to_write;  
+    op_mode_set_submodule(MODULE_MAIN_GPS);
+    op_mode_check_altitude();
   }
+  else
+  {
+    op_mode_clr_submodule(MODULE_MAIN_GPS);
+  }
+  gps_first_time_fix = gps_sync_time();
   GPSIndex = 0;
-  exit_atomic();
+  give_mutex();
 }
 
 int32_t gps_sync_time()

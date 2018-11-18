@@ -33,7 +33,7 @@ int processCMDTAmsg(void)
   if( tmp[0] == 'S')
   {
     //SICL.println("save");
-    pic = savePICsd();
+    pic = savePISD_CSd();
     DEBUG.println(F(""));
     //TODO change to switch case
     if(pic == 0)
@@ -62,7 +62,7 @@ int processCMDTAmsg(void)
   }  
 }
 
-int32_t savePICsd(void)
+int32_t savePISD_CSd(void)
 {
   char str[10];
   byte buf[256];

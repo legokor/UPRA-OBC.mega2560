@@ -11,8 +11,11 @@ bool com_log_present = false;
 int32_t sdcard_init()
 {
   DEBUG.print(F("[OBC] SD Card init..."));
+
+  pinMode(SD_CS, OUTPUT);
+  digitalWrite(SD_CS, HIGH);
   
-  if (!sd.begin(CS, SPI_HALF_SPEED)) 
+  if (!sd.begin(SD_CS, SPI_HALF_SPEED)) 
   {
     DEBUG.println(F("NO SD Card present"));
     card_present = false;

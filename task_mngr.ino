@@ -144,7 +144,7 @@ int32_t sleep_task(uint32_t id)
   {
     return -1; //TODO ERRORS
   }
-  if( t_call_cntr[id] == 0)
+  if( t_task_state[id] == TASK_SLEEP )
   {
     return -2; //TODO errors
   }
@@ -158,6 +158,10 @@ int32_t wake_up_task(uint32_t id)
   if( t_call_stack[id] == NULL)
   {
     return -1; //TODO ERRORS
+  }
+  if( t_task_state[id] != TASK_SLEEP )
+  {
+    return -2; //TODO errors
   }
 
   t_call_cntr[id] = 1;

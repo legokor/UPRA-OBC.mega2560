@@ -30,6 +30,7 @@ typedef enum {
   BUS_GET_COM_HK        = 5,
   BUS_BEACON_TX         = 6,
   BUS_SLAVE_INTERRUPT   = 7,
+  BUS_CAN_ERROR         = 8,
 }bus_input_e;
 
 byte MSGindex=0;

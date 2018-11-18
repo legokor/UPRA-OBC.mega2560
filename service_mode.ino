@@ -1,6 +1,7 @@
 String s_input_string = "";         // a string to hold incoming data
 boolean s_string_complete = false;  // whether the string is complete
 uint32_t service_state;
+time_t s_timeout_buffer;
 
 void service_mode()
 {
@@ -39,10 +40,7 @@ void service_mode()
           }
           else if(s_input_string == "#EXIT\r")
           {
-            
-            time_set_timestamp(&obc_time, ((obc_time.timestamp) + (old_time.timestamp)));
-            give_mutex();
-            return;;
+            service_state = SER_ST_EXIT;
           }
           s_input_string = "";
           s_string_complete = false;
@@ -67,8 +65,15 @@ void service_mode()
         DEBUG.println("time");
         break;              
       }
+      case SER_ST_EXIT:
+      {
+        time_set_timestamp(&obc_time, ((obc_time.timestamp) + (s_timeout_buffer.timestamp) + (old_time.timestamp)));
+        give_mutex();
+        return;
+      }
       default: break;
     }
+    service_timeout();
     service_serialEvent();
   }
   give_mutex();
@@ -88,10 +93,25 @@ void s_help()
   DEBUG.println(F(""));
 }
 
+void service_timeout()
+{
+  if(obc_time.timestamp > SERVICE_TIMEOUT)
+  {
+    service_state = SER_ST_EXIT;
+  }
+}
+
+void service_timeout_reset()
+{
+  time_set_timestamp(&s_timeout_buffer, obc_time.timestamp);
+  time_set_timestamp(&obc_time, 0);
+}
+
 void service_serialEvent() 
 {
   while (DEBUG.available()) 
   {
+    service_timeout_reset();
     // get the new byte:
     char inChar = (char)DEBUG.read();
     // add it to the inputString:

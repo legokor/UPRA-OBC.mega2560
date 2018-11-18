@@ -29,6 +29,7 @@ char              GPS_long[2][13];
 long              GPS_Altitude[2];
 uint8_t           GPS_Satellites;
 uint8_t           GPS_Fix;
+uint8_t           GPS_first_fix;
 
 
 uint8_t           GPS_valid;

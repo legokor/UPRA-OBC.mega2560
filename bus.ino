@@ -3,7 +3,8 @@ uint32_t bus_state;
 void task_bus_process()
 {
   take_mutex();
-  GetBusMSG();
+  get_micl_msg();
+  get_sicl_msg();
   give_mutex();
 }
 
@@ -47,7 +48,7 @@ void clrBusBusy(void)
   pinMode(BUSBUSY, INPUT);
 }
 
-int ProcessBUSmsg(void)
+int process_sicl_msg(void)
 {
   if ((bus_msg[1] == 'T') && (bus_msg[2] == 'C') && (bus_msg[3] == 'H') && (bus_msg[4] == 'K') && (bus_msg[5] == 'D'))
   {
@@ -78,7 +79,7 @@ int ProcessBUSmsg(void)
 }
 
 
-int GetBusMSG(void)
+int get_sicl_msg(void)
 {
   char inByte;
   int error=10;
@@ -155,14 +156,16 @@ int32_t b_idle_state_executor(const uint32_t input)
     {
       bus_state = BUS_ST_GET_COM_HK;
       sw_timer_enable_channel(BUS_TIMER);
-      radio_get_hk();
+      radio_micl_get_hk();
+//      radio_sicl_get_hk();
       return 0;
     }
     case BUS_BEACON_TX:
     {
       bus_state = BUS_ST_BEACON_TX;
       sw_timer_enable_channel(BUS_TIMER);
-      radio_beacon_tx();
+      radio_micl_beacon_tx(&ltm_msg);
+      //radio_sicl_beacon_tx();
       return 0;
     }
     case BUS_SLAVE_INTERRUPT:
@@ -189,13 +192,15 @@ int32_t b_process_state_executor(const uint32_t input)
     case BUS_EOL:
     {
       sleep_task(BUS_PROCESS_TASK);
-      ProcessBUSmsg();
+      process_sicl_msg();
       return 0;
     }
     case BUS_ACK:
     {
       bus_state = BUS_ST_IDLE;
       MSGindex = 0;
+      com_error_cntr = RADIO_ERROR_CNT;
+      op_mode_set_submodule(MODULE_COM);
       clrBusBusy();
       wake_up_task(SLAVE_INT_TASK);
       return 0;
@@ -206,6 +211,7 @@ int32_t b_process_state_executor(const uint32_t input)
       sleep_task(BUS_PROCESS_TASK);
       MSGindex = 0;
       clrBusBusy();
+      b_error_cntr();
       wake_up_task(SLAVE_INT_TASK);
       return 0;
     }
@@ -227,15 +233,14 @@ int32_t b_get_com_hk_state_executor(const uint32_t input)
       wake_up_task(BUS_PROCESS_TASK);
       return 0;
     }
-    case BUS_TIMEOUT:
+    case BUS_CAN_ERROR:
     {
- //     bus_state = BUS_ST_IDLE;
-      clrBusBusy();
-      return 0;
+      bus_state = BUS_ST_IDLE;
+      return 0;      
     }
     default: 
     {
-      DEBUG.println("error_com_hk");
+//      DEBUG.println("error_com_hk");
       return -2;
     }
   }
@@ -250,12 +255,6 @@ int32_t b_beacon_tx_state_executor(const uint32_t input)
       bus_state = BUS_ST_PROCESS;
       sw_timer_enable_channel(BUS_TIMER);
       wake_up_task(BUS_PROCESS_TASK);
-      return 0;
-    }
-    case BUS_TIMEOUT:
-    {
-      bus_state = BUS_ST_IDLE;
-      clrBusBusy();
       return 0;
     }
     default: 
@@ -291,6 +290,18 @@ int32_t b_interrupt_state_executor(const uint32_t input)
   }
 }
 
+void b_error_cntr()
+{
+  if( com_error_cntr != 0)
+  {
+    com_error_cntr--;
+    if(com_error_cntr == 0 )
+    {
+      op_mode_clr_submodule(MODULE_COM);
+    }
+  }
+}
+
 void b_slave_interrupt_handler()
 {
   SICL.println(F("$TMINT*4A"));
@@ -301,5 +312,6 @@ void bus_timer_cb()
 {
   sw_timer_disable_channel(BUS_TIMER);
   bus_sm(BUS_TIMEOUT);
+  bus_state = BUS_ST_IDLE;
 }
 

@@ -22,7 +22,7 @@ void hk_push_com_hk()
 
   time_get(&hh, &mm, &ss);
   DEBUG.print(F("[OBC] COM HK DATA: "));
-  sprintf(radio_hk_buff, "%02ld:%02ld:%02ld,%s,%05ld", hh, mm, ss, radio_temp, radio_msg_id);
+  sprintf(radio_hk_buff, "%02ld:%02ld:%02ld,%4u,%05ld", hh, mm, ss, radio_temp, radio_msg_id);
   DEBUG.println(radio_hk_buff);
   
 }

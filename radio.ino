@@ -15,6 +15,7 @@ void processTCHKDmsg()
  
   IntegerPart = 1;
   radio_msg_id = 0;
+  radio_temp = 0;
  
   for (i=0, j=0, k=0; (i<MSGindex) && (j<10); i++) // We start at 7 so we ignore the '$GPGGA,'
   {
@@ -30,7 +31,8 @@ void processTCHKDmsg()
       {
         if (((bus_msg[i] >= '0') && (bus_msg[i] <= '9')) ||(bus_msg[i] == '-') )
         {        
-          radio_temp[k] = bus_msg[i];
+          radio_temp = radio_temp * 10;
+          radio_temp += (unsigned int)(bus_msg[i] - '0');
           k++;
         }
       }
@@ -49,17 +51,13 @@ void processTCHKDmsg()
       }
     }
   }
-  radio_temp[3] ='\0';  
   DEBUG.println(radio_temp);
 }
 
 void radio_init()
 {
-
-  radio_temp[0] = 'N';
-  radio_temp[1] = '/';
-  radio_temp[2] = 'A';
-  radio_temp[3] = '\0';
+  com_error_cntr = RADIO_ERROR_CNT;
+  radio_temp = 0;
   radio_msg_id = 0;
 //  sw_timer_add_channel(RADIO_TIMER, RADIO_ACK_TIMEOUT, &radio_timer_cb);
 }
@@ -99,7 +97,7 @@ int SendRadioTelemetry(void)
 /////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////
 
-int32_t radio_get_hk(void)
+int32_t radio_sicl_get_hk(void)
 {
   ////////////SICL.listen();  
   DEBUG.println(F("[OBC] Get Radio Housekeeping"));  
@@ -113,7 +111,7 @@ int32_t radio_get_hk(void)
   return 0;
 }
 
-int32_t radio_beacon_tx(void)
+int32_t radio_sicl_beacon_tx(void)
 {
   long  GPS_Alt_tmp;
   char tmp_buffer[64];
@@ -139,22 +137,7 @@ int32_t radio_beacon_tx(void)
   DEBUG.println(GPS_Alt_tmp);
   DEBUG.println(tmp_buffer);
   delay(200);
-//        SICL.print(F("$TMLTM,"));
-//        SICL.print(GPS_time[GPS_valid]);
-//        SICL.print(F(","));
-//        SICL.print(GPS_lati[GPS_valid]);
-//        SICL.print(F(","));
-//        SICL.print(GPS_long[GPS_valid]);
-//        SICL.print(F(","));
-//        //SICL.print(GPS_Alt_ch);
-//        sprintf(buffer, "%05ld",GPS_Alt_tmp);
-//        SICL.print(buffer);
-//        SICL.print(F(","));
-//        sprintf(buffer, "%04d",ext_temp[ext_temp_valid]);
-//        SICL.print(buffer);
-//        SICL.print(F(","));
-//        sprintf(buffer, "%04d",pcb_temp[pcb_temp_valid]);
-//        SICL.print(buffer);
+
   SICL.print(tmp_buffer);
   SICL.println(F("*47"));    
 
@@ -164,13 +147,97 @@ int32_t radio_beacon_tx(void)
   return 0;
 }
 
+int32_t radio_micl_get_hk(void)
+{
+  DEBUG.println(F("[OBC] Get Radio Housekeeping"));  
+
+  can_tx_msg[0] = 0;
+  can_tx_msg[1] = CAN_GET_COM_HK;
+
+  if( can_send_msg(CAN_ID, 2) != 0)
+  {
+    bus_sm(BUS_CAN_ERROR);
+    return -1;
+  }
+  bus_sm(BUS_PROCESS);
+  return 0;
+}
+
+int32_t radio_micl_beacon_tx(can_ltm_t* msg)
+{
+  byte ltm[8];
+  byte chksm = 0;
+  byte sndStat;
+  int i;
+
+  can_set_beacon_msg(msg);
+
+  can_tx_msg[0] = 0;
+  can_tx_msg[1] = msg->id;
+  memcpy(can_tx_msg + 2, &(msg->gps_time), 4);
+  memcpy(can_tx_msg + 6, &(msg->latitude1), 2);
+
+  for(i = 2; i < 8; i++)
+  {
+    chksm ^= can_tx_msg[i];
+  }
+ 
+  if( can_send_msg(CAN_ID, 8) != 0)
+  {
+    bus_sm(BUS_CAN_ERROR);
+    return -1;
+  }
+
+  can_tx_msg[0]++;
+  memcpy(can_tx_msg + 2, &(msg->latitude2), 2);
+  memcpy(can_tx_msg + 4, &(msg->longitude1), 2);
+  memcpy(can_tx_msg + 6, &(msg->longitude2), 2);
+
+  for(i = 2; i < 8; i++)
+  {
+    chksm ^= can_tx_msg[i];
+  }
+ 
+  if( can_send_msg(CAN_ID, 8) != 0)
+  {
+    bus_sm(BUS_CAN_ERROR);
+    return -1;
+  }
+
+  can_tx_msg[0]++;
+  memcpy(can_tx_msg + 2, &(msg->altitude), 2);
+  memcpy(can_tx_msg + 4, &(msg->ext_temp), 2);
+  memcpy(can_tx_msg + 6, &(msg->obc_temp), 2);
+
+  for(i = 2; i < 8; i++)
+  {
+    chksm ^= can_tx_msg[i];
+  }
+
+  if( can_send_msg(CAN_ID, 8) != 0)
+  {
+    bus_sm(BUS_CAN_ERROR);
+    return -1;
+  }
+
+  can_tx_msg[0]++;
+  can_tx_msg[2] = chksm;
+
+  if( can_send_msg(CAN_ID, 3) != 0)
+  {
+    bus_sm(BUS_CAN_ERROR);
+    return -1;
+  }
+  bus_sm(BUS_PROCESS);
+}
+
 /*void lowSpeedStartup(void)
 {
       unsigned long timer=0;
      
 //      SICL.begin(57600); 
       //////SICL.listen();
-      radio_get_hk();
+      radio_sicl_get_hk();
       
       
       delay(1000);

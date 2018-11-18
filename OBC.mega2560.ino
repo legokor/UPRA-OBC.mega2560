@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <util/delay.h>
 #include <avr/pgmspace.h>
+#include <mcp_can.h>
+
 
 #include "service_mode.h"
 #include "task_mngr.h"
@@ -17,13 +19,15 @@
 #include "sw_timer.h"
 #include "bus.h"
 #include "get_hk.h"
+#include "operation_modes.h"
+#include "can.h"
 
 /*
  * Timing macros
  */
  #define GETGPS       1   // activate GPS read every GETGPS)*5s                   (0-> never, 1-> every 5second)
  #define GETTEMP      15  // activate Temperature measurement every GETTEMP)*5s   (0-> never, 1-> every 5second)
- #define GETICS       2  // activate ICS capture every GETICS)*5s                (0-> never, 1-> every 5second)
+ #define GETISD_CS       2  // activate ISD_CS capture every GETISD_CS)*5s                (0-> never, 1-> every 5second)
  #define RADIO        3   // activate telemetry downlink every RADIO*5s           (0-> never, 1-> every 5second)
  //#define TERMINATION  cut_down_alt
 
@@ -42,11 +46,6 @@
 #define MENU    6
 #define SHTR    7
 
-//SD CARD - SPI
-#define MOSI    51        //MOSI
-#define MISO    50        //MISO
-#define CLK     52        //CLK        
-#define CS      26        //CHIP SELECT
 
 
 /*
@@ -62,33 +61,12 @@
  */
 
 time_t obc_time;
+can_ltm_t ltm_msg;
+can_com_hk_t can_com_hk_msg;
 
 unsigned long now;
-uint8_t is_gps=0;
-uint8_t is_temp=0;
-uint8_t is_radio=0;
-uint8_t is_ics=0;
 
-uint8_t ecam_timer=0;
-bool is_ecam_on=false;
-
-bool is_climb=false;
-bool is_landing=false;
 //bool is_FTU_on=false;
-
-bool is_com_present=true;
-
-void timing()
-{
-  now = millis();
-  if( !is_landing )
-  {
-    is_gps++;
-    is_temp++;
-    is_radio++;
-    is_ics++;
-  }
-}
 
 int ledon = 1;
 void task_toggle_led()
@@ -109,6 +87,10 @@ void task_toggle_led()
 void setup() 
 {
   // put your setup code here, to run once:
+  set_operation_mode(OP_MODE_INIT);
+  
+  sub_module_state = 0;
+
   pinMode(7, OUTPUT);
   digitalWrite(7, LOW);
 
@@ -123,6 +105,7 @@ void setup()
 //  ecam_ON();
   time_init(&obc_time);
 
+  can_init();
   
   DEBUG.println(F("[OBC] init COM..."));
   //SICL.listen();
@@ -160,8 +143,6 @@ void setup()
   //Pin configurations
   pinMode(BUZZ, OUTPUT);
   pinMode(FTU, OUTPUT);
-  pinMode(CS, OUTPUT);
-  digitalWrite(CS, HIGH);
   digitalWrite(FTU, LOW);
 
   delay(500);
@@ -180,6 +161,8 @@ void setup()
   task_init();
   //send startup msg
   DEBUG.println(F("[OBC] Init done"));
+  set_operation_mode(OP_MODE_SAFE);
+  wake_up_task(SAFE_MODE_TASK);
   start_scheduler();
 }
 
@@ -189,75 +172,5 @@ void loop()
 
   DEBUG.println(F("[OBC] TASK MANAGER ERROR"));
   while(1);
-
-//  if(busBusy_interrupt())
-//  {
-////    SICL.println(F("[OBC] BUS INTERRUPT"));
-//    //send ACK message
-//    //get BUS message
-//  }
-//  
-//  if( ((millis() - now) > 5000) && (!is_landing))
-//  {
-//    ecam_timer=0;
-//    timing();
-//    if(is_temp == GETTEMP)
-//    {
-//      getTemperatures();
-//      is_temp = 0;
-//    }
-//
-//    if(is_gps == GETGPS)
-//    {
-//      //getTemperatures();
-// 
-//      getGPSMeasurement();
-//      delay(50);
-//
-////---------------datalog---------------
-//
-//      sdcard_push_obc_log();
-//          
-////---------------datalogend------------
-//
-//      
-//      is_gps=0;
-//    }
-//    if(is_radio == RADIO)
-//    {
-//      radio_beacon_tx();
-//      is_radio=0;
-//    }
-//
-//    if(is_ics == GETICS)
-//    {
-////      DEBUG.print(obc_time.hour);
-////      DEBUG.print(obc_time.minute);
-////      DEBUG.println(obc_time.second);
-////      DEBUG.println(obc_time.obc_time);
-//      getPICuart();
-//      is_ics = 0;
-//    }
-//    
-///*    if(( GPS_Altitude > TERMINATION) && (!is_FTU_on))
-//    {
-//        digitalWrite(FTU, HIGH);
-//        delay(1000);
-//        digitalWrite(FTU, LOW);
-//        is_FTU_on = true;
-//    }*/
-//   // timing();
-//  }
-//  
-//  if(is_landing)
-//  {
-//    DEBUG.println(F("[OBC] BEACON MODE"));
-//    buzzer();
-//    getGPSMeasurement();
-//    sdcard_push_obc_log();
-//    radio_beacon_tx();
-//   // delay(1000);
-//  }
-
 
 }
